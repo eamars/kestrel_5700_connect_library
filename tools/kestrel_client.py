@@ -3,9 +3,11 @@ encrypted read commands and decode the replies. Implements docs/ICD.md.
 
 Only commands verified live against the device are exposed here. All are reads,
 but GetGun also selects the gun it reads on the device (ICD B-1); get_guns()
-restores the selection. Set/Erase/Reboot/firmware opcodes are not wrapped.
+restores the selection. CalcFullSolution is used only with the vendor app's
+Target Card arguments, which leave the device unchanged (ICD §7.10).
+Set/Erase/Reboot/firmware opcodes are not wrapped.
 
-Usage: kestrel_client.py                 # connect, auth, read identity + all guns
+Usage: kestrel_client.py                 # identity, guns, environment, solution, target card
        kestrel_client.py --name ELITE --log my_session.log
 
 Requires the project venv (bleak, pycryptodome) and kestrel_proto.py beside it.
@@ -40,6 +42,10 @@ OP_SET_ENVIRONMENT = 0x0091  # pushed by the Kestrel in reply to GET_ENVIRONMENT
 OP_GET_ACTIVE_GUN = 0x0094
 OP_GET_REMOTE_SOLN = 0x00A0
 OP_SET_REMOTE_SOLN = 0x00A1  # pushed by the Kestrel in reply to GET_REMOTE_SOLN
+OP_CALC_FULL_SOLN = 0x0093
+OP_SET_FULL_SOLN = 0x008A    # pushed by the Kestrel in reply to CALC_FULL_SOLN
+
+TARGET_COUNT = 10            # targets per Target Card sector
 
 SETTINGS_GUN_TRANSFER = 0
 SETTINGS_TGT_INFO = 2
@@ -288,6 +294,24 @@ class Kestrel:
                 "dof_deg": f(27), "elev_mil": f(31), "wnd1_mil": f(35), "wnd2_mil": f(39),
                 "ws1_ms": f(43), "ws2_ms": f(47), "wd_deg": f(51), "raw": rec}
 
+    async def get_target_card(self) -> dict:
+        """Target Card of the sector currently selected on the device, read the way
+        the vendor app's "Pull Targets" does: TgtInfo, then CalcFullSolution
+        [t][t][ff][00] for t = 0..9, each answered by one 0x8a record (ICD §7.10).
+        These exact args leave the device state unchanged. Sectors cannot be selected
+        or named over BLE; switch the sector on the device and call this again.
+        Each target carries its range and the raw 0x8a record (layout: ICD §7.9)."""
+        info = await self.get_settings(SETTINGS_TGT_INFO)
+        numeric = len(info) > 6 and info[6] == 1  # designator: 0 = ABC, 1 = 123
+        targets = []
+        for t in range(TARGET_COUNT):
+            msgs = await self.request(OP_CALC_FULL_SOLN, bytes([t, t, 0xFF, 0x00]), timeout=10.0,
+                                      done=lambda ty, p: ty == kp.T_COMMAND and _op(p) == OP_SET_FULL_SOLN)
+            rec = msgs[-1][1][2:]
+            targets.append({"index": t, "label": str(t + 1) if numeric else chr(ord("A") + t),
+                            "range_m": struct.unpack_from("<H", rec, 2)[0] / 100, "raw": rec})
+        return {"designator": "123" if numeric else "ABC", "targets": targets}
+
 
 async def main():
     ap = argparse.ArgumentParser()
@@ -321,6 +345,7 @@ async def main():
             soln = await k.get_remote_solution()
         except Nack as e:
             soln = {"error": str(e)}
+        card = await k.get_target_card()
 
     print("\n==== summary ====")
     print(f"device       {name}  serial {serial}")
@@ -338,6 +363,8 @@ async def main():
         print(f"solution     {soln['gun_name']!r}: range {soln['range_m']:.0f} m  "
               f"elev {soln['elev_mil']:+.2f} mil (neg = up)  wnd1 {soln['wnd1_mil']:+.2f}  "
               f"wnd2 {soln['wnd2_mil']:+.2f} mil (neg = right)")
+    print(f"target card  current sector, designator {card['designator']}: "
+          + "  ".join(f"{t['label']} {t['range_m']:.1f} m" for t in card["targets"]))
     print(f"log          {os.path.normpath(log_path)}")
 
 

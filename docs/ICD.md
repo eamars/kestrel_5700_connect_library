@@ -196,6 +196,7 @@ Command names follow the vendor's naming (INFERRED for commands not exercised). 
 | `0x0090` | GetEnvironment | none | COMMAND `0x0091` §7.6 | that COMMAND | VERIFIED |
 | `0x0094` | GetActiveGunIndex | `[00][u16 0]` | RESPONSE §7.7 | first RESPONSE | VERIFIED. The slot selected on the device (B-2). |
 | `0x00a0` | GetRemoteSoln | `[u8 type=0][u8 counter]` | COMMAND `0x00a1` §7.8, or NACK `0x0c` | that COMMAND | VERIFIED. `counter` is a free-running byte, echoed back. |
+| `0x0093` | CalcFullSolution (Target Card pull) | exactly `[t][t][ff][00]`, t = 0…9 | COMMAND `0x008a` §7.9 | that COMMAND | VERIFIED: the vendor app's arguments; selected gun and a valid live solution unchanged across a full pull; records reproducible between pulls (§7.10). Any other arguments stay RESTRICTED (§6.4). |
 
 ### 6.2 Verified unsupported or unavailable on this unit (sending is harmless)
 
@@ -425,7 +426,7 @@ The Target Card is stored **on the device** (Elite only). It holds 10 targets (d
 
 The targets are further grouped into named **sectors**, each holding 10 targets. The sector name is shown on the device's Target Card sub-menu (`Sctr…`), and the vendor app can "Pull Targets from Kestrel" (USER, vendor documentation). So sectors and their targets are readable over BLE. TgtInfo (§7.4 kind 2) follows the current sector's designator but carries no sector number or name (VERIFIED, three sectors). No known command addresses sectors or sector names.
 
-**Reading the Target Card.** The vendor app's "Pull Targets from Kestrel" is `0x0084` kind 2, then 10 × `0x0093 [t][t][ff][00]` for t = 0…9 (target t, solutionId t, doExtraCalcs `0xff`, not set active), each answered by one `0x008a` (§7.9) (VERIFIED, observed). Target numbers 0–9 index the 10 targets of the **current sector**: pulls in two sectors returned entirely different target ranges, matching each sector (VERIFIED). The pull changed neither the selected gun nor the live solution (VERIFIED, 3 pulls). To read every sector, switch the sector on the device and pull again; label the targets with the designator from §7.4 kind 2 `+6`. No sector name crossed the link during the pull.
+**Reading the Target Card.** The vendor app's "Pull Targets from Kestrel" is `0x0084` kind 2, then 10 × `0x0093 [t][t][ff][00]` for t = 0…9 (target t, solutionId t, doExtraCalcs `0xff`, not set active), each answered by one `0x008a` (§7.9) (VERIFIED, observed). Target numbers 0–9 index the 10 targets of the **current sector**: pulls in two sectors returned entirely different target ranges, matching each sector (VERIFIED). The pull changed neither the selected gun nor the live solution (VERIFIED with a valid solution before and after; earlier pulls ran while the device was in a menu, B-6). Repeated pulls return byte-identical records. To read every sector, switch the sector on the device and pull again; label the targets with the designator from §7.4 kind 2 `+6`. No sector name crossed the link during the pull.
 
 ---
 
@@ -485,3 +486,4 @@ The targets are further grouped into named **sectors**, each holding 10 targets.
 | 1.6 | 2026-11-01 | Target Card read path observed from the vendor app: `0x0084` kind 2, then 10 × `0x0093 [t][t][ff][00]` → `0x008a` (§6.4, §7.10). §7.9 +32: literal value replaced by its encoding (privacy). |
 | 1.7 | 2026-11-01 | §7.4 kind 2 `+6` = target designator (0 = ABC, 1 = 123), VERIFIED by switching sectors; TgtInfo carries no sector number or name (§7.10). |
 | 1.8 | 2026-11-01 | §7.10: a Target Card pull returns the current sector's 10 targets (VERIFIED in two sectors); pulls leave the device state unchanged. |
+| 1.9 | 2026-11-01 | §6.1: `0x0093` with exactly the Target Card arguments `[t][t][ff][00]` moved to SAFE; other arguments stay RESTRICTED. |

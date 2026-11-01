@@ -8,10 +8,11 @@ solution directly from the device.
 - A PC (Windows, bleak) connects directly, with no pairing, mutually authenticates,
   and runs the encrypted command channel.
 - Reads working: device identity, privacy status, settings, all gun profiles
-  (names, bullet maker/model, raw parameters), environment record, and the live
-  remote-solution record for the gun selected on the device.
-- Record field mapping (solution holds, gun parameters, environment values) is
-  the main open work; see `docs/ICD.md` §11.
+  (decoded parameters, drag model, twist, record checksum), the environment
+  record, the live solution for the gun selected on the device, and the Target
+  Card of the sector selected on the device (10 targets).
+- Not available over BLE as far as known: selecting a Target Card sector or
+  reading sector names. Open items are listed in `docs/ICD.md` §11.
 
 ## Layout
 - `docs/ICD.md` — the BLE Interface Control Document: GATT, framing, packets,
@@ -27,6 +28,7 @@ solution directly from the device.
 
 ## Run
 From `tools/`: `../venv/Scripts/python kestrel_client.py` prints the device
-identity, every gun profile, the environment record, and the live solution, and
+identity, every gun profile, the environment record, the live solution and the
+Target Card of the sector selected on the device (switch sectors on the device), and
 writes a full frame log under `private/captures/`. If the scan finds nothing
 right after a previous run, run it again (ICD L1-6).
