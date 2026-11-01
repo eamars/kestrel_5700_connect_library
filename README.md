@@ -27,7 +27,9 @@ solution directly from the device.
   codes, behaviours. Written for humans and AI agents.
 - `AGENTS.md` — rules for AI agents working in this repo.
 - `tools/kestrel_proto.py` — framing, CRC, packets, AES-128 crypto.
-- `tools/kestrel_client.py` — BLE client: connect → auth → verified reads.
+- `tools/kestrel_client.py` — BLE client: connect → auth → verified reads. The session
+  runs over any transport (direct BLE by default); over a HUD link (ICD §14) call
+  `hud_open()` and `authenticate(privacy_status=False)` first.
 - `tools/decode_full_solution.py` — offline decoder for `0x008a` full-solution
   records (ICD §7.9), e.g. from a Target Card read.
 

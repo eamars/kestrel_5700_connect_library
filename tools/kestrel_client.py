@@ -44,6 +44,7 @@ OP_GET_REMOTE_SOLN = 0x00A0
 OP_SET_REMOTE_SOLN = 0x00A1  # pushed by the Kestrel in reply to GET_REMOTE_SOLN
 OP_CALC_FULL_SOLN = 0x0093
 OP_SET_FULL_SOLN = 0x008A    # pushed by the Kestrel in reply to CALC_FULL_SOLN
+OP_FREE_TO_COMMUNICATE = 0x00A8  # the Kestrel's opening frame on a HUD link
 
 TARGET_COUNT = 10            # targets per Target Card sector
 
@@ -67,9 +68,27 @@ def _cstr(b: bytes) -> str:
     return b.split(b"\x00")[0].decode("latin1")
 
 
-class Kestrel:
-    def __init__(self, client: BleakClient, log_path=None):
+class BleTransport:
+    """The Kestrel's own LiNK service over a direct BLE connection (PC/mobile mode)."""
+
+    def __init__(self, client: BleakClient):
         self.client = client
+
+    async def start(self, on_bytes):
+        await self.client.start_notify(NOTIFY_UUID, lambda _char, data: on_bytes(data))
+
+    async def write(self, frame: bytes):
+        for off in range(0, len(frame), CHUNK):
+            await self.client.write_gatt_char(WRITE_UUID, frame[off:off + CHUNK], response=True)
+
+
+class Kestrel:
+    """One LiNK session. `transport` moves raw frame bytes: start(on_bytes) delivers
+    what the Kestrel sends, write(frame) sends a whole HDLC frame. BleTransport is
+    the direct PC/mobile link; a HUD link (ICD §14) carries the same session."""
+
+    def __init__(self, transport, log_path=None):
+        self.transport = transport
         self.encrypted = False
         self._q: asyncio.Queue = asyncio.Queue()
         self._buf = bytearray()
@@ -87,9 +106,9 @@ class Kestrel:
             self._log.flush()
 
     # ---- transport ----
-    def _on_chunk(self, _char, data: bytearray):
-        # Indications arrive as fixed 20-byte chunks; bytes after a closing
-        # flag are zero padding and are skipped while outside a frame.
+    def _on_bytes(self, data: bytes):
+        # Over BLE, indications arrive as fixed 20-byte chunks; bytes after a
+        # closing flag are zero padding and are skipped while outside a frame.
         for b in data:
             if b == kp.FLAG:
                 if self._in_frame and self._buf:
@@ -112,15 +131,13 @@ class Kestrel:
                 self._esc = False
 
     async def start(self):
-        await self.client.start_notify(NOTIFY_UUID, self._on_chunk)
+        await self.transport.start(self._on_bytes)
 
     async def _send(self, ptype: int, payload: bytes):
         packet = kp.encode_packet(ptype, payload)
         body = kp.encrypt_packet(packet) if self.encrypted else packet
-        frame = kp.hdlc_wrap(body)
         self.log(f"=> {'ENC' if self.encrypted else 'CLR'} type={ptype} {payload.hex()}")
-        for off in range(0, len(frame), CHUNK):
-            await self.client.write_gatt_char(WRITE_UUID, frame[off:off + CHUNK], response=True)
+        await self.transport.write(kp.hdlc_wrap(body))
 
     async def _recv(self, timeout):
         while True:
@@ -179,13 +196,21 @@ class Kestrel:
                 return payload
 
     # ---- auth ----
-    async def authenticate(self):
-        """Cleartext handshake: GetPrivacyStatus, then the host proves the key on
-        the Kestrel's nonce, then the Kestrel proves it on ours."""
-        await self._send(kp.T_COMMAND, struct.pack("<H", OP_GET_PRIVACY_STATUS))
-        status = await self._expect(lambda t, p: t == kp.T_RESPONSE)
-        await self._ack(OP_GET_PRIVACY_STATUS)
-        self.log(f"[auth] privacy status {status.hex()}")
+    async def hud_open(self, timeout=10.0):
+        """HUD link (ICD §14.2): the Kestrel opens every connection with
+        FreeToCommunicate; ACK it, then authenticate(privacy_status=False)."""
+        await self._expect(lambda t, p: t == kp.T_COMMAND and _op(p) == OP_FREE_TO_COMMUNICATE, timeout)
+        await self._ack(OP_FREE_TO_COMMUNICATE)
+
+    async def authenticate(self, privacy_status=True):
+        """Cleartext handshake: GetPrivacyStatus (not supported on a HUD link), then
+        the host proves the key on the Kestrel's nonce, then the Kestrel proves it
+        on ours."""
+        if privacy_status:
+            await self._send(kp.T_COMMAND, struct.pack("<H", OP_GET_PRIVACY_STATUS))
+            status = await self._expect(lambda t, p: t == kp.T_RESPONSE)
+            await self._ack(OP_GET_PRIVACY_STATUS)
+            self.log(f"[auth] privacy status {status.hex()}")
 
         await self._send(kp.T_COMMAND, struct.pack("<HB", OP_REQUEST_AUTH, 0))
         p = await self._expect(lambda t, p: t == kp.T_COMMAND and _op(p) == OP_AUTH_DATA)
@@ -343,20 +368,30 @@ async def main():
         print("not found (another central connected? device asleep?)")
         sys.exit(1)
     async with BleakClient(dev, timeout=30.0) as client:
-        k = Kestrel(client, log_path)
+        k = Kestrel(BleTransport(client), log_path)
         await k.start()
         await k.authenticate()
-        serial = await k.get_serial()
-        name = await k.get_device_name()
-        active = await k.get_active_gun_index()
-        guns = await k.get_guns()
-        env = await k.get_environment()
-        try:
-            soln = await k.get_remote_solution()
-        except Nack as e:
-            soln = {"error": str(e)}
-        card = await k.get_target_card()
+        report = await read_all(k)
+    print_summary(report, log_path)
 
+
+async def read_all(k: Kestrel) -> dict:
+    """Every verified read on an authenticated session (direct or HUD link)."""
+    r = {"serial": await k.get_serial(), "name": await k.get_device_name(),
+         "active": await k.get_active_gun_index()}
+    r["guns"] = await k.get_guns()
+    r["env"] = await k.get_environment()
+    try:
+        r["soln"] = await k.get_remote_solution()
+    except Nack as e:
+        r["soln"] = {"error": str(e)}
+    r["card"] = await k.get_target_card()
+    return r
+
+
+def print_summary(r: dict, log_path: str):
+    name, serial, active, guns, env, soln, card = (
+        r["name"], r["serial"], r["active"], r["guns"], r["env"], r["soln"], r["card"])
     print("\n==== summary ====")
     print(f"device       {name}  serial {serial}")
     print(f"selected     slot {active}")

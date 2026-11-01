@@ -520,6 +520,7 @@ Wind values were set on the device but not carried here, so the unset fields are
 | 1.14 | 2026-11-01 | §13: name not used for discovery (USER); added §13.5 implementer's guide with test vectors; dropout handling. |
 | 1.15 | 2026-11-01 | Added §14 HUD Connect: a second central link to the Kestrel HUD, which serves service `4154…`; solution carried over it by GetRemoteSoln/SetRemoteSoln (`0x00a0`/`0x00a1`). All INFERRED — no HUD observed on the wire. |
 | 1.16 | 2026-11-01 | §14 rewritten from a verified implementation: listing and lock criteria (H-2, H-3), discovery by Find Information (H-4), the LiNK service is required (H-5), FreeToCommunicate opening, the phone-link auth and GetRemoteSoln run over the HUD link with the HUD as host (H-8–H-10); implementer's guide §14.3. `0x00a8` moved to SAFE. Supersedes the 1.15 inferences. |
+| 1.17 | 2026-11-01 | §14 H-10: the full §7 read set works over the authenticated HUD link (only `0x0081` refused), so the HUD link is a second data path alongside a rangefinder in Device mode. |
 
 
 ## 13. Device mode: LiNK rangefinder link
@@ -636,7 +637,7 @@ The roles in the LiNK protocol (§3–§7) are the same as on the phone link eve
 |---|---|---|
 | H-8 | The Kestrel's first frame on every connection is COMMAND `0x00a8` FreeToCommunicate, args `0a 00`, cleartext. The HUD ACKs it. While it went unanswered, the link was seen to drop (`0x08`) and reconnect every few seconds. | VERIFIED (drop cause INFERRED) |
 | H-9 | The HUD then runs the authentication of §5.3 from the host side, unchanged: RequestAuth `0x007e` `[00]` → the Kestrel's AuthData nonce → the HUD's 36-byte proof → the Kestrel's RequestAuth → the HUD's nonce → the Kestrel's proof. Same key; the Kestrel's proof verifies. From then on the link is encrypted (§5.2). | VERIFIED |
-| H-10 | After authentication, GetRemoteSoln `0x00a0` `[00][counter]` is ACKed and answered with COMMAND `0x00a1`, laid out as §7.8 (the HUD ACKs it). This is the live solution the HUD displays. | VERIFIED |
+| H-10 | After authentication the HUD link carries the same command set as the phone link: GetRemoteSoln `0x00a0` `[00][counter]` is answered with COMMAND `0x00a1` (§7.8), the live solution the HUD displays; serial `0x0006`, name `0x000a`, settings `0x0084` (kinds 0, 2, 3), environment `0x0090` → `0x0091`, selected slot `0x0094`, gun records `0x0087` and the Target Card (`0x0093` `[t][t][ff][00]` → `0x008a`) all answer exactly as in §7. Only GetPrivacyStatus `0x0081` is refused (NACK `0x03`). | VERIFIED |
 | H-11 | Before authentication the Kestrel refuses solution requests with NACK `0x0a` whatever the type byte (0–3 tried), and sends nothing unprompted, including when values change on the device. `0x0081` and a HUD-sent `0x00a8` get NACK `0x03`. | VERIFIED |
 | H-12 | The link drops with supervision timeouts (`0x08`) from time to time and the Kestrel reconnects at once, repeating H-6 and H-8; the HUD must authenticate again on each connection. | VERIFIED |
 
@@ -650,7 +651,7 @@ The roles in the LiNK protocol (§3–§7) are the same as on the phone link eve
 2. **Serve** the LiNK service exactly as the Kestrel's own (§2.1): `8592ffff` read, `85920100` read + indicate with a CCCD, `85920200` write. The verified setup also served the `4154…` service (`4154ffff` read, `41540100` read/notify/indicate with a CCCD, `41540200` write) and Device Information (`2a29` "Kestrel by NK", `2a24` "0750L", `2a25` the serial in the name, `2a27`, `2a26` "0.26"); serving them is harmless. Answer Find Information correctly across 16- and 128-bit UUIDs: some stacks skip the rest of a service after a UUID-size change, which hides characteristics from the Kestrel; putting the 128-bit services last avoids it.
 3. **Pair on the Kestrel** (user action): Bluetooth › Conct = Device › HUD Connect › Name › New; pick the HUD (no lock icon). The Kestrel shows Connected.
 4. **On each connection:** wait for the CCCD write, ACK FreeToCommunicate, run §5.3 as the host, then switch to encrypted frames.
-5. **Poll** GetRemoteSoln `0x00a0` `[00][counter]` (the vendor app's live screen polls about once a second, §11-4) and display the `0x00a1` reply; ACK every Kestrel COMMAND with its opcode and every RESPONSE with the request's opcode, as on the phone link.
+5. **Poll** GetRemoteSoln `0x00a0` `[00][counter]` (any other §7 read works too, H-10) (the vendor app's live screen polls about once a second, §11-4) and display the `0x00a1` reply; ACK every Kestrel COMMAND with its opcode and every RESPONSE with the request's opcode, as on the phone link.
 6. **Be robust:** expect drops (H-12); keep advertising and repeat step 4 on every reconnection.
 
 ### 14.4 Open
