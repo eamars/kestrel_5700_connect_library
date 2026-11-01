@@ -15,6 +15,9 @@ solution directly from the device.
   `docs/ICD.md` §13, including an implementer's guide (§13.5) for building a
   device that sends range, direction of fire and inclination and receives the
   Kestrel's solution.
+- HUD Connect (the Kestrel as central to a heads-up display) is documented in
+  `docs/ICD.md` §14, with an implementer's guide (§14.3) for a device the Kestrel
+  accepts as its HUD and serves the live solution to.
 - Not available over BLE as far as known: selecting a Target Card sector or
   reading sector names. Open items are listed in `docs/ICD.md` §11.
 

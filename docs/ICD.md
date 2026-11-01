@@ -228,7 +228,7 @@ Command names follow the vendor's naming (INFERRED for commands not exercised). 
 | `0x0093` | CalcFullSolution | 4: `[u8 targetNumber (0xff = current)][u8 solutionId][u8 doExtraCalcs 0–2][u8 setAsActiveTgt]` | RESTRICTED | Triggers device computation. Exercised once with owner approval, args `ff 00 00 00`: the Kestrel ACKed and pushed COMMAND `0x008a` (§7.9); the selected gun and the live solution were unchanged (VERIFIED). Other argument values UNTESTED. The vendor app's "Pull Targets from Kestrel" sends `[t][t][ff][00]` for t = 0…9 and gets one `0x008a` per target (VERIFIED, observed). |
 | `0x0092` | StartStopStreaming | 9: `[u8 subsystem][u16 p][6 × u8]` | RESTRICTED | See §6.5 |
 | `0x00a9` | KeepAlive | 0 | UNTESTED | |
-| `0x00a8` | FreeToCommunicate | 2 | UNTESTED | |
+| `0x00a8` | FreeToCommunicate | 2 | SAFE | Sent by the Kestrel to a HUD as its first frame, args `0a 00`; ACK it. Sent to the Kestrel: NACK `0x03` (§14.2). |
 | `0x0082` | PrivAuthenticate | 8 | UNTESTED | Needs `<PIN>`; not needed today |
 | `0x0083` | StopEncrypting | — | RESTRICTED | Changes link security |
 | `0x009d` | EnableNkPEX | 1 | RESTRICTED | |
@@ -459,7 +459,7 @@ Wind values were set on the device but not carried here, so the unset fields are
 | Reason | Meaning | Status |
 |---|---|---|
 | `0x03` | Command not supported (probably also used for "args too short") | VERIFIED (unsupported); INFERRED (short args) |
-| `0x0a` | Invalid argument / item not available | VERIFIED |
+| `0x0a` | Invalid argument / item not available; also solution requests on an unauthenticated HUD link (§14.2 H-11) | VERIFIED |
 | `0x0b` | Index out of range (GetGun past the last slot) | VERIFIED |
 | `0x0c` | No solution available: the device has not computed one, e.g. because the selected gun is disabled in Manage Guns (B-1) | VERIFIED |
 | `0x0000` with opcode `0xffff` | Kestrel could not decode the frame (e.g. cleartext sent into an encrypted session, or a malformed frame) | INFERRED |
@@ -497,6 +497,7 @@ Wind values were set on the device but not carried here, so the unset fields are
 4. `0x0092` arg semantics (§6.5). Low priority: the vendor app's live solution screen does not use it; it polls `0x00a0` about once a second (VERIFIED, 70 polls in one session).
 5. Meaning of `8592ffff` and the §7.4 settings fields.
 6. Sectors (§7.10): no known command selects a sector or reads its name.
+7. HUD link (§14.4): manufacturer-data bytes, which services are required, and the HUD's commands beyond GetRemoteSoln.
 
 ## 12. Revision history
 
@@ -517,6 +518,8 @@ Wind values were set on the device but not carried here, so the unset fields are
 | 1.12 | 2026-11-01 | Added §13 Device mode: the Kestrel as central to a LiNK rangefinder; peer advertisement and GATT; cleartext HDLC with ASCII `0x005e` sentences (ST, AI, A+, A3, AB). |
 | 1.13 | 2026-11-01 | §13.5: acting as the rangefinder verified (range, bearing and inclination drive the Kestrel's solution; no ACKs needed from the device). |
 | 1.14 | 2026-11-01 | §13: name not used for discovery (USER); added §13.5 implementer's guide with test vectors; dropout handling. |
+| 1.15 | 2026-11-01 | Added §14 HUD Connect: a second central link to the Kestrel HUD, which serves service `4154…`; solution carried over it by GetRemoteSoln/SetRemoteSoln (`0x00a0`/`0x00a1`). All INFERRED — no HUD observed on the wire. |
+| 1.16 | 2026-11-01 | §14 rewritten from a verified implementation: listing and lock criteria (H-2, H-3), discovery by Find Information (H-4), the LiNK service is required (H-5), FreeToCommunicate opening, the phone-link auth and GetRemoteSoln run over the HUD link with the HUD as host (H-8–H-10); implementer's guide §14.3. `0x00a8` moved to SAFE. Supersedes the 1.15 inferences. |
 
 
 ## 13. Device mode: LiNK rangefinder link
@@ -604,3 +607,53 @@ Keep the ATT MTU at 23: send at most 20 bytes per notification and split longer 
 
 ### 13.6 Open
 - `AB` solution fields; whether the Kestrel filters on the service UUID or the manufacturer data; whether the Kestrel's sentences change when the peer's "Kestrel Solution in FURY" setting is off.
+
+---
+
+## 14. HUD Connect: remote-display link
+
+Under **Bluetooth › Conct = Device**, the Kestrel offers a second pairing, **HUD Connect**, separate from **Device Connect** (the rangefinder link, §13). It is for the Kestrel HUD (heads-up display) and runs as its own concurrent BLE link with its own connection indicator on the Targeting screen (USER, from the manual). As in §13 the Kestrel is the **central**.
+
+The link below was verified with an independent implementation acting as the HUD (no vendor HUD involved). The Kestrel lists it, shows it as **Connected** under HUD Connect, authenticates with it and serves it the live solution.
+
+### 14.1 Link layer
+
+| ID | Fact | Status |
+|---|---|---|
+| H-1 | In HUD Connect the Kestrel does not advertise. It scans, lists HUDs under Name › New, and connects out. After pairing it reconnects to the HUD's address by itself, within about a second of the HUD advertising again. | VERIFIED |
+| H-2 | **Listing.** The Kestrel lists a peer as a HUD when the **advertisement** carries the complete name `HUD-<serial>` and the **scan response** carries the 128-bit service `41540000-2053-5341-4d20-445548204b4e` (`4154…`). The same name in the scan response, or the `8592…` LiNK UUID instead of `4154…`, is not listed. The real HUD's name has the form `HUD-` followed by 7 digits (USER). | VERIFIED |
+| H-3 | **Lock state.** The scan response's manufacturer data decides whether the HUD is offered as available. Company `0x00ea` with data `0a 00 ff ff ff ff`: available. No manufacturer data, or `0a 00 ff ff`: listed with a lock icon, and selecting it gives "Locked to another device - not available" with no connection attempt. The lock icon appears about a second after the entry, once the scan response is received. The meaning of the individual bytes is UNKNOWN. | VERIFIED (byte meanings UNKNOWN) |
+| H-4 | **Discovery.** After connecting, the Kestrel enumerates the peer's whole attribute table with ATT Find Information (`0x0001`–`0xffff`, continuing until "attribute not found"). It does not use primary-service discovery and does not exchange MTU (23) or request BLE pairing. | VERIFIED |
+| H-5 | **Required GATT.** The Kestrel only continues if the peer serves the **LiNK service** `85920000-0338-4b83-ae4a-ac1d217adb03` laid out as the Kestrel's own (§2.1): `8592ffff` (read), `85920100` (read, indicate, CCCD), `85920200` (write). With only the `4154…` service (with or without a `4154ffff` characteristic and Device Information), it enumerates and then does nothing until the link times out, showing "No device registered". | VERIFIED |
+| H-6 | The Kestrel subscribes by writing `0002` (indications) to the `85920100` CCCD, then writes its frames to `85920200`. HUD→Kestrel frames go out as indications on `85920100`. | VERIFIED |
+| H-7 | Whether the `4154…` service and a Device Information service must also be served is UNKNOWN (both were served in the verified setup; see §14.3). Two further peer-device service UUIDs, `79c30000-d911-4fef-bd38-1c8ad3750449` and `fed00000-a679-43a4-8141-d08305614e45`, are associated with central-mode connections; their roles are UNKNOWN. | UNKNOWN / INFERRED |
+
+### 14.2 Session
+
+The roles in the LiNK protocol (§3–§7) are the same as on the phone link even though the BLE roles are reversed: the **HUD acts as the host** (it authenticates and sends requests) and the **Kestrel acts as the device** (it answers and serves data).
+
+| ID | Fact | Status |
+|---|---|---|
+| H-8 | The Kestrel's first frame on every connection is COMMAND `0x00a8` FreeToCommunicate, args `0a 00`, cleartext. The HUD ACKs it. While it went unanswered, the link was seen to drop (`0x08`) and reconnect every few seconds. | VERIFIED (drop cause INFERRED) |
+| H-9 | The HUD then runs the authentication of §5.3 from the host side, unchanged: RequestAuth `0x007e` `[00]` → the Kestrel's AuthData nonce → the HUD's 36-byte proof → the Kestrel's RequestAuth → the HUD's nonce → the Kestrel's proof. Same key; the Kestrel's proof verifies. From then on the link is encrypted (§5.2). | VERIFIED |
+| H-10 | After authentication, GetRemoteSoln `0x00a0` `[00][counter]` is ACKed and answered with COMMAND `0x00a1`, laid out as §7.8 (the HUD ACKs it). This is the live solution the HUD displays. | VERIFIED |
+| H-11 | Before authentication the Kestrel refuses solution requests with NACK `0x0a` whatever the type byte (0–3 tried), and sends nothing unprompted, including when values change on the device. `0x0081` and a HUD-sent `0x00a8` get NACK `0x03`. | VERIFIED |
+| H-12 | The link drops with supervision timeouts (`0x08`) from time to time and the Kestrel reconnects at once, repeating H-6 and H-8; the HUD must authenticate again on each connection. | VERIFIED |
+
+### 14.3 Implementer's guide: building a HUD
+
+1. **Advertise** (connectable, legacy advertising, public address). Advertising data: flags `02 01 06` and the complete name, e.g. `0c 09 "HUD-2100001"`. Scan response:
+   ```
+   11 07 4e 4b 20 48 55 44 20 4d 41 53 53 20 00 00 54 41    128-bit service 41540000-2053-5341-4d20-445548204b4e
+   09 ff ea 00 0a 00 ff ff ff ff                            manufacturer data, company 0x00ea
+   ```
+2. **Serve** the LiNK service exactly as the Kestrel's own (§2.1): `8592ffff` read, `85920100` read + indicate with a CCCD, `85920200` write. The verified setup also served the `4154…` service (`4154ffff` read, `41540100` read/notify/indicate with a CCCD, `41540200` write) and Device Information (`2a29` "Kestrel by NK", `2a24` "0750L", `2a25` the serial in the name, `2a27`, `2a26` "0.26"); serving them is harmless. Answer Find Information correctly across 16- and 128-bit UUIDs: some stacks skip the rest of a service after a UUID-size change, which hides characteristics from the Kestrel; putting the 128-bit services last avoids it.
+3. **Pair on the Kestrel** (user action): Bluetooth › Conct = Device › HUD Connect › Name › New; pick the HUD (no lock icon). The Kestrel shows Connected.
+4. **On each connection:** wait for the CCCD write, ACK FreeToCommunicate, run §5.3 as the host, then switch to encrypted frames.
+5. **Poll** GetRemoteSoln `0x00a0` `[00][counter]` (the vendor app's live screen polls about once a second, §11-4) and display the `0x00a1` reply; ACK every Kestrel COMMAND with its opcode and every RESPONSE with the request's opcode, as on the phone link.
+6. **Be robust:** expect drops (H-12); keep advertising and repeat step 4 on every reconnection.
+
+### 14.4 Open
+- The meaning of the manufacturer-data bytes (type, lock owner), and what a paired HUD advertises.
+- Which of the `4154…` service, `4154ffff` and Device Information the Kestrel requires (H-7), and what `8592ffff` must contain.
+- What else a HUD sends after authentication: screen selection (Get/SetCurScreen `0x00a2`/`0x00a3`), target list and target switching (SetSupTargets `0x0079`, SetTgtStatus `0x00a7`), and whether the Kestrel pushes updates unprompted once authenticated.
