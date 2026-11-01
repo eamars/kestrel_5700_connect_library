@@ -216,7 +216,7 @@ Command names follow the vendor's naming (INFERRED for commands not exercised). 
 | `0x0091` | SetEnvironment | reply to `0x0090` | ACK | VERIFIED |
 | `0x00a1` | SetRemoteSoln | reply to `0x00a0` | ACK | VERIFIED |
 | `0x00a7` | SetTgtStatus | unsolicited | ACK (NACK reason 3 is also accepted) | VERIFIED |
-| `0x008a` | SetFullSoln | reply to `0x0093` | ACK | VERIFIED once |
+| `0x008a` | SetFullSoln | reply to `0x0093`, and pushed after a host `0x0089` | ACK | VERIFIED |
 | `0x007c`, `0x00a6` SetFullUnits, `0x0089` SetFullInputs, `0x0088` SetGun (+ RESPONSE parts, EOD) | — | burst after a non-zero `0x0092` (see §6.5) | ACK | VERIFIED once; payloads UNKNOWN |
 
 ### 6.4 UNTESTED / RESTRICTED / FORBIDDEN (not exercised, INFERRED)
@@ -237,7 +237,8 @@ Command names follow the vendor's naming (INFERRED for commands not exercised). 
 | `0x0095` | SetActiveGunIndex | 5 | RESTRICTED | Writes state |
 | `0x0091` / `0x00a1` / `0x00a7` (host→K) | SetEnvironment / SetRemoteSoln / SetTgtStatus | var | RESTRICTED | Writes state |
 | `0x0078`, `0x0079`, `0x007a`, `0x00a3`, `0x00a5`, `0x00a6`, `0x00ae`, `0x00d0` | SetUnits, SetSupTargets, SetBalInput, SetCurScreen, Set2700Wind, SetFullUnits, SetUnits(sys), SetWez | var | RESTRICTED | Writes state |
-| `0x0088`, `0x0089` (host→K) | SetGun, SetFullInputs | var | RESTRICTED | Overwrites profiles/inputs |
+| `0x0088` (host→K) | SetGun | var | RESTRICTED | Overwrites profiles |
+| `0x0089` (host→K) | SetFullInputs | 28 (§7.11) | RESTRICTED | Writes the current target's inputs (range, inclination, DoF); the device recalculates and pushes `0x008a`. Used by the vendor app's range/DoF controls (VERIFIED, observed). Not sent by this client. |
 | `0x008a` (K→host) | SetFullSoln | 90 | — | Full solution record, reply to `0x0093` (§7.9) |
 | `0x007a` | SetBalInput: range, DoF, inclination, latitude, WD, WS1, WS2, target speed/direction, do-extra-calcs | 17 | RESTRICTED | Writes the target inputs |
 | `0x0086` | EraseGuns | 2 | **FORBIDDEN** | Deletes gun profiles |
@@ -434,6 +435,23 @@ The targets are further grouped into named **sectors**, each holding 10 targets.
 
 **Reading the Target Card.** The vendor app's "Pull Targets from Kestrel" is `0x0084` kind 2, then 10 × `0x0093 [t][t][ff][00]` for t = 0…9 (target t, solutionId t, doExtraCalcs `0xff`, not set active), each answered by one `0x008a` (§7.9) (VERIFIED, observed). Target numbers 0–9 index the 10 targets of the **current sector**: pulls in two sectors returned entirely different target ranges, matching each sector (VERIFIED). The pull changed neither the selected gun nor the live solution (VERIFIED with a valid solution before and after; earlier pulls ran while the device was in a menu, B-6). Repeated pulls return byte-identical records. To read every sector, switch the sector on the device and pull again; label the targets with the designator from §7.4 kind 2 `+6`. No sector name crossed the link during the pull.
 
+
+### 7.11 MSG-0089-C — SetFullInputs (host COMMAND; offsets after the opcode)
+Observed from the vendor app when the user changes range or DoF; the device's current target took the new values (USER) and the device pushed `0x008a`.
+
+| Offset | Size | Type | Field | Status |
+|---|---|---|---|---|
+| 0 | 2 | — | `0000` observed | UNKNOWN |
+| 2 | 3 | i24 | **range**, × 0.01 m | VERIFIED (500 m) |
+| 5 | 3 | i24 | **Ideg, inclination**, × 0.001° | INFERRED (matched the current 1°) |
+| 8 | 3 | i24 | **DoF**, × 0.001° | VERIFIED (44° → 90° changed only this field) |
+| 11 | 6 | 2 × i24 | `ffffff` each; "not set" candidates | UNKNOWN |
+| 17 | 6 | 2 × i24 | `010080` each (`0x800001`); "not set" candidates | UNKNOWN |
+| 23 | 1 | u8 | `0x81` observed | UNKNOWN |
+| 24 | 4 | bytes | `ff00ff00` observed | UNKNOWN |
+
+Wind values were set on the device but not carried here, so the unset fields are likely the wind and target-speed inputs the app does not control (INFERRED).
+
 ---
 
 ## 8. NACK reason codes
@@ -476,7 +494,7 @@ The targets are further grouped into named **sectors**, each holding 10 targets.
 1. §7.9 partly mapped: range, DoF, the three holds and the three wind values (front half, cross-checked against §7.8), plus RemV/RemE/ToF. Still open — the unidentified back-half f32 (spin drift / coriolis / aero jump / drop and the other §7.8-absent outputs are candidates) and the 3 bytes at +32; capture `0x0093` with doExtraCalcs = 1/2 to fill and label the `2³²` sentinel slots. Test target numbers 0–9 against the Target Card (§7.10). Confirm §7.8 +103 as Ideg. Check hold and range units under other unit settings.
 2. §7.5: decode the AB drag-curve table (pairing/format of the values); the rest of part 1.
 3. §7.6: meaning of the u16 values between fields, the `01 01 01` flags and the last two bytes.
-4. Establish `0x0092` arg semantics before any further sends (§6.5).
+4. `0x0092` arg semantics (§6.5). Low priority: the vendor app's live solution screen does not use it; it polls `0x00a0` about once a second (VERIFIED, 70 polls in one session).
 5. Meaning of `8592ffff` and the §7.4 settings fields.
 6. Sectors (§7.10): no known command selects a sector or reads its name.
 
@@ -495,3 +513,4 @@ The targets are further grouped into named **sectors**, each holding 10 targets.
 | 1.8 | 2026-11-01 | §7.10: a Target Card pull returns the current sector's 10 targets (VERIFIED in two sectors); pulls leave the device state unchanged. |
 | 1.9 | 2026-11-01 | §6.1: `0x0093` with exactly the Target Card arguments `[t][t][ff][00]` moved to SAFE; other arguments stay RESTRICTED. |
 | 1.10 | 2026-11-01 | Units: holds always mil and range always metres regardless of display (VERIFIED); Eunit/Wunit located (§7.5 part 1 +181/+182, copied to §7.8 +15/+17); §7.8 +103 = Ideg (VERIFIED). Added B-7 (editing a gun moves it to slot 0). |
+| 1.11 | 2026-11-01 | Added §7.11 `0x0089` SetFullInputs (range, Ideg, DoF), observed from the vendor app; `0x008a` is also pushed after it. The vendor app's live screen polls `0x00a0` and does not use `0x0092`. |
