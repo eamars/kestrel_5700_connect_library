@@ -226,7 +226,8 @@ class Kestrel:
     async def get_gun(self, index: int) -> dict:
         """Full gun record: three RESPONSE parts, then EOD. Raises Nack(0x0b)
         past the last slot. Side effect: the device selects this gun, even one
-        that is disabled in Manage Guns (ICD B-1)."""
+        that is disabled in Manage Guns (ICD B-1). Slot numbers are positions in
+        a most-recently-edited-first list (ICD B-7); identify guns by name."""
         msgs = await self.request(OP_GET_GUN, struct.pack("<H", index),
                                   done=lambda t, p: t == kp.T_COMMAND and _op(p) == OP_EOD)
         parts = [p for t, p in msgs if t == kp.T_RESPONSE]
@@ -247,6 +248,9 @@ class Kestrel:
             gun["twist"] = "L" if gun["rt_cm"] < 0 else "R"  # sign of RT
         if len(p1) > 185:
             gun["dm"] = {0: "G1", 1: "G7", 0x0A: "AB"}.get(p1[185], f"{p1[185]:#04x}")
+            units = {1: "mil", 2: "TMOA"}  # display units only; holds are always sent in mil
+            gun["eunit"] = units.get(p1[181], f"{p1[181]:#04x}")
+            gun["wunit"] = units.get(p1[182], f"{p1[182]:#04x}")
         stream = b"".join(p[2:] for p in parts)
         if len(stream) == 438:
             gun["crc_ok"] = kp.gun_record_crc(stream) == int.from_bytes(stream[436:438], "little")

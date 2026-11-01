@@ -319,7 +319,10 @@ The kind names are INFERRED. All three records were byte-identical before and af
 | 1 | 1 | u8 | `00` | VERIFIED |
 | 2 | 165 | mixed | Continues the part-0 (value, Mach) table up to Mach 3.0, then further fields. In a profile without the table, the non-zero bytes are two f32 `1.0` at 135 and 139, then u16 values at 143. One of these u16 equals MV in ft/s. | INFERRED |
 | 167 | 12 | ASCII | **profile name**, NUL padded; no terminator when all 12 bytes are used | VERIFIED (11/11) |
-| 179 | 6 | bytes | `0a0a01010101` in all 11 profiles | UNKNOWN |
+| 179 | 2 | bytes | `0a0a` in all 11 profiles | UNKNOWN |
+| 181 | 1 | u8 | **Eunit, elevation unit**: `1` = mil, `2` = TMOA (other values UNTESTED) | VERIFIED (mil ↔ TMOA on the device) |
+| 182 | 1 | u8 | **Wunit, windage unit**: same coding as Eunit | VERIFIED |
+| 183 | 2 | bytes | `0101` in all 11 profiles | UNKNOWN |
 | 185 | 1 | u8 | **DM, drag model**: `0x00` = G1, `0x01` = G7, `0x0a` = Applied Ballistics custom drag model (shown on the device by bullet maker, e.g. "Hornady") | VERIFIED (G1 ↔ G7 by toggle; `0x0a` USER, one profile) |
 | 186 | 17 | ASCII | **bullet manufacturer**, NUL padded, may be empty | VERIFIED (11/11) |
 | 203 | 16 | ASCII | **bullet model**, NUL padded, may be empty | VERIFIED (11/11) |
@@ -367,7 +370,10 @@ Not in this record: wind speeds, wind direction and DoF (they are target values;
 | 1 | 1 | u8 | counter (echo of request `arg[1]`) | VERIFIED |
 | 2 | 1 | u8 | `00` | VERIFIED |
 | 3 | 12 | ASCII | **selected gun's profile name**, NUL padded | VERIFIED (matches the profile on screen, USER) |
-| 15 | 8 | bytes | `0100010001010a0a` observed | UNKNOWN |
+| 15 | 1 | u8 | **Eunit** of the selected gun (§7.5 part 1 +181): `1` = mil, `2` = TMOA | VERIFIED |
+| 16 | 1 | — | `00` | UNKNOWN |
+| 17 | 1 | u8 | **Wunit** of the selected gun (§7.5 part 1 +182) | VERIFIED |
+| 18 | 5 | bytes | `0001010a0a` observed | UNKNOWN |
 | 23 | 4 | f32 | **TR, target range**, in m (display set to m) | VERIFIED (300 → 400 on screen) |
 | 27 | 4 | f32 | **DoF, direction of fire**, degrees | VERIFIED (203.0 ↔ "203 deg") |
 | 31 | 4 | f32 | **Elv, elevation hold**, in mil (Eunit mil); negative = Up | VERIFIED (−25.2544 ↔ "25.25U mil") |
@@ -381,9 +387,9 @@ Not in this record: wind speeds, wind direction and DoF (they are target values;
 | 63 | 4 | f32 | **station pressure**, hPa (same value as §7.6 +18) | VERIFIED |
 | 67 | 4 | f32 | **relative humidity**, % (same value as §7.6 +23) | VERIFIED |
 | 71 | 32 | 8 × f32 | byte-identical copy of the selected gun's MV, ZR, BH, RT, BD, BC, BW, BL, in that order, same units as §7.5 part 0 (offsets 8, 28, 32, 44, 20, 12, 16, 24) | VERIFIED copy |
-| 103 | 4 | f32 | `0.0` observed while Ideg = 0; Ideg candidate | UNKNOWN |
+| 103 | 4 | f32 | **Ideg, inclination**, degrees | VERIFIED (0 → 0.0, 1° → 1.0, 5° → 5.0) |
 
-The record carries the holds and most solver inputs. Target speed is not in it: TS = 0.9 m/s on screen, and no field holds that value (VERIFIED, one record). The derived outputs shown in the device's Ballistics menu (RTrns, RSubs, MaxO, AerJ, vCor, hCor, SpnD, Trce, Drop, Lead, ToF, RemV, RemE) do not appear in it as f32 in any of the screen's units (VERIFIED, one 400 m record). Units were checked with the device set to metric range and mil holds only; other unit settings are UNTESTED.
+The record carries the holds and most solver inputs. Target speed is not in it: TS = 0.9 m/s on screen, and no field holds that value (VERIFIED, one record). The derived outputs shown in the device's Ballistics menu (RTrns, RSubs, MaxO, AerJ, vCor, hCor, SpnD, Trce, Drop, Lead, ToF, RemV, RemE) do not appear in it as f32 in any of the screen's units (VERIFIED, one 400 m record). **Units are fixed, whatever the display shows:** holds are always mil and range always metres. Switching Eunit/Wunit to TMOA left the hold values byte-identical (only +15/+17 changed), and switching the device's range unit to yards left the whole record and the gun record unchanged (VERIFIED). Other Eunit values (SMOA, inches, cm, clicks) are UNTESTED.
 
 ### 7.9 MSG-008A-C — full solution (Kestrel COMMAND, reply to `0x0093`)
 90 bytes, **packed (not 4-byte aligned)**. Offsets are relative to the record (after the opcode).
@@ -461,6 +467,7 @@ The targets are further grouped into named **sectors**, each holding 10 targets.
 | B-4 | Typical latency: ~0.2 s to ACK, about 1 s per 219 B RESPONSE part. A full GetGun takes about 3 s. | VERIFIED |
 | B-5 | **Solution unavailable after remote operations.** GetRemoteSoln NACKs `0x0c`, and the device shows no ballistic results, while the selected gun is disabled in Manage Guns. GetGun can select such a gun (B-1), and a full list read can leave the device on one. Selecting an enabled gun clears it. This is the "nudge" the device seemed to need. | VERIFIED (USER: slot 5 is disabled) |
 | B-6 | **While a target value is being edited on the device**, `0xa1` still answers, but every f32 from +23 on reads NaN. Valid values return once the edit is done (two 2 s polls during a range edit). | VERIFIED |
+| B-7 | **Slot order changes.** Editing a gun on the device moves it to slot 0, pushing the others down; untouched guns keep their order. Seen: after editing the slot-1 gun it became slot 0 and the former slot 0 became slot 1. Slot numbers are positions, not stable IDs; identify guns by name. `0x0094` follows the move. | VERIFIED (one edit) |
 
 ---
 
@@ -487,3 +494,4 @@ The targets are further grouped into named **sectors**, each holding 10 targets.
 | 1.7 | 2026-11-01 | §7.4 kind 2 `+6` = target designator (0 = ABC, 1 = 123), VERIFIED by switching sectors; TgtInfo carries no sector number or name (§7.10). |
 | 1.8 | 2026-11-01 | §7.10: a Target Card pull returns the current sector's 10 targets (VERIFIED in two sectors); pulls leave the device state unchanged. |
 | 1.9 | 2026-11-01 | §6.1: `0x0093` with exactly the Target Card arguments `[t][t][ff][00]` moved to SAFE; other arguments stay RESTRICTED. |
+| 1.10 | 2026-11-01 | Units: holds always mil and range always metres regardless of display (VERIFIED); Eunit/Wunit located (§7.5 part 1 +181/+182, copied to §7.8 +15/+17); §7.8 +103 = Ideg (VERIFIED). Added B-7 (editing a gun moves it to slot 0). |
