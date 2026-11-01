@@ -278,7 +278,7 @@ Command names follow the vendor's naming (INFERRED for commands not exercised). 
 | 2 | TgtInfoSettings | 8 | `000000000a000100` | VERIFIED raw; fields UNKNOWN |
 | 3 | BalInfoSettings | 152 | starts `000000000000964300a08c45…`; f32 LE values, a run of `ff` near the end | VERIFIED raw; fields UNKNOWN |
 
-The kind names are INFERRED. All three records were byte-identical before and after a target-range change and several gun selections (VERIFIED), so they hold static configuration, not live target values. Kind 3 is mostly f32 pairs that look like input limits (e.g. `-90`/`90`); kind 2 `+4 = 0x0a` may be the number of targets (A–J). Both are INFERRED.
+The kind names are INFERRED. All three records were byte-identical before and after a target-range change and several gun selections (VERIFIED), so they hold static configuration, not live target values. Kind 3 is mostly f32 pairs that look like input limits (e.g. `-90`/`90`); kind 2 `+4 = 0x0a` may be the number of targets (A–J) (INFERRED). Kind 2 `+6` (u16) is the current sector's **target designator: `0` = ABC, `1` = 123** (VERIFIED across three sectors: it was the only byte in all three records to change when the sector was switched on the device).
 
 ### 7.5 MSG-0087-R — gun record (3 × RESPONSE, then EOD)
 
@@ -423,7 +423,7 @@ Two back-half f32 slots hold `0x4f800000` (exactly 2³²), read as a "not comput
 ### 7.10 Target Card
 The Target Card is stored **on the device** (Elite only). It holds 10 targets (designated A–J or 1–10), each with its own range, DoF, inclination, target speed and wind (WD, WS1, WS2). The device computes a solution for each, and a LiNK rangefinder can range into the highlighted target (manual). §7.4 kind 2 `+4 = 0x0a` matches the 10-target count (INFERRED).
 
-The targets are further grouped into named **sectors**, each holding 10 targets. The sector name is shown on the device's Target Card sub-menu (`Sctr…`), and the vendor app can "Pull Targets from Kestrel" (USER, vendor documentation). So sectors and their targets are readable over BLE. No known command addresses sectors or sector names.
+The targets are further grouped into named **sectors**, each holding 10 targets. The sector name is shown on the device's Target Card sub-menu (`Sctr…`), and the vendor app can "Pull Targets from Kestrel" (USER, vendor documentation). So sectors and their targets are readable over BLE. TgtInfo (§7.4 kind 2) follows the current sector's designator but carries no sector number or name (VERIFIED, three sectors). No known command addresses sectors or sector names.
 
 **Reading the Target Card.** The vendor app's "Pull Targets from Kestrel" is `0x0084` kind 2, then 10 × `0x0093 [t][t][ff][00]` for t = 0…9 (target t, solutionId t, doExtraCalcs `0xff`, not set active), each answered by one `0x008a` (§7.9) (VERIFIED, observed). So target numbers 0–9 index the 10 targets the device currently holds; that these are the current sector's targets is INFERRED. No sector name crossed the link during the pull.
 
@@ -483,3 +483,4 @@ The targets are further grouped into named **sectors**, each holding 10 targets.
 | 1.4 | 2026-11-01 | `0x0093` CalcFullSolution exercised once (owner-approved): reply `0x008a` SetFullSoln, 90 B, no state change (§6.4, §6.3, §7.9). Added §7.10 Target Card (sectors). New SetBalInput row. BC not editable under AB (USER). |
 | 1.5 | 2026-11-01 | §7.9 `0x008a` full-solution record mapped from a second CalcFullSolution capture (doExtraCalcs = 0): front half (range, DoF, holds, winds) cross-checked against the §7.8 record from the same transaction; RemV/RemE/ToF identified and internally confirmed (RemE = ½·BW·RemV²). `2³²` back-half slots read as "not computed" sentinels. §11-1 revised. |
 | 1.6 | 2026-11-01 | Target Card read path observed from the vendor app: `0x0084` kind 2, then 10 × `0x0093 [t][t][ff][00]` → `0x008a` (§6.4, §7.10). §7.9 +32: literal value replaced by its encoding (privacy). |
+| 1.7 | 2026-11-01 | §7.4 kind 2 `+6` = target designator (0 = ABC, 1 = 123), VERIFIED by switching sectors; TgtInfo carries no sector number or name (§7.10). |
