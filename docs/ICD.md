@@ -398,8 +398,8 @@ The record carries the holds and most solver inputs. Target speed is not in it: 
 | Offset | Size | Type | Field | Status |
 |---|---|---|---|---|
 | 0 | 2 | — | `0000` | UNKNOWN |
-| 2 | 2 | u16 | **range**, cm (= §7.8 TR × 100) | INFERRED (= §7.8 value, one record) |
-| 4 | 4 | — | `00000000` | UNKNOWN |
+| 2 | 3 | u24 | **range**, cm (= §7.8 TR × 100) | VERIFIED (a target beyond 655.35 m reads correctly only as u24; another matched §7.8 TR of the same target) |
+| 5 | 3 | — | zero on some targets, non-zero on others | UNKNOWN |
 | 8 | 3 | i24 | **DoF, direction of fire**, × 0.001° (= §7.8 DoF) | INFERRED (= §7.8 value, one record) |
 | 11 | 4 | f32 | **Elv, elevation hold**, mil; negative = Up | VERIFIED copy (byte-identical to §7.8 +31) |
 | 15 | 4 | f32 | **Wnd1, windage hold at WS1**, mil; negative = Right | VERIFIED copy (= §7.8 +35) |
@@ -521,6 +521,7 @@ Wind values were set on the device but not carried here, so the unset fields are
 | 1.15 | 2026-11-01 | Added §14 HUD Connect: a second central link to the Kestrel HUD, which serves service `4154…`; solution carried over it by GetRemoteSoln/SetRemoteSoln (`0x00a0`/`0x00a1`). All INFERRED — no HUD observed on the wire. |
 | 1.16 | 2026-11-01 | §14 rewritten from a verified implementation: listing and lock criteria (H-2, H-3), discovery by Find Information (H-4), the LiNK service is required (H-5), FreeToCommunicate opening, the phone-link auth and GetRemoteSoln run over the HUD link with the HUD as host (H-8–H-10); implementer's guide §14.3. `0x00a8` moved to SAFE. Supersedes the 1.15 inferences. |
 | 1.17 | 2026-11-01 | §14 H-10: the full §7 read set works over the authenticated HUD link (only `0x0081` refused), so the HUD link is a second data path alongside a rangefinder in Device mode. |
+| 1.18 | 2026-11-01 | §7.9 +2 range is u24 cm (was u16: targets beyond 655.35 m wrapped); +5 is a separate 3-byte field, UNKNOWN. |
 
 
 ## 13. Device mode: LiNK rangefinder link

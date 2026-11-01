@@ -71,7 +71,7 @@ def decode(payload):
         raise ValueError(f"expected {REC_LEN} bytes, got {len(payload)}")
     d = {
         # --- identified (ICD §7.9) ---------------------------------------
-        "range_m": u16(payload, 2) / 100.0,              # +2  u16, cm
+        "range_m": int.from_bytes(payload[2:5], "little") / 100.0,  # +2 u24, cm
         "dof_deg": i24(payload, 8) / 1000.0,             # +8  i24, x0.001 deg
         "elev_mil": f32(payload, 11),                    # +11 f32 (copy §7.8)
         "wnd1_mil": f32(payload, 15),                    # +15 f32

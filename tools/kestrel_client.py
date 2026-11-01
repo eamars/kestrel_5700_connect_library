@@ -342,7 +342,7 @@ class Kestrel:
             f = lambda o: struct.unpack_from("<f", rec, o)[0]
             targets.append({
                 "index": t, "label": str(t + 1) if numeric else chr(ord("A") + t),
-                "range_m": struct.unpack_from("<H", rec, 2)[0] / 100,
+                "range_m": int.from_bytes(rec[2:5], "little") / 100,   # u24 cm (ICD §7.9)
                 "elev_mil": f(11), "wnd1_mil": f(15), "wnd2_mil": f(19),
                 "remv_ms": f(39), "reme_j": f(43), "tof_s": f(47), "raw": rec})
         return {"designator": "123" if numeric else "ABC", "targets": targets}
