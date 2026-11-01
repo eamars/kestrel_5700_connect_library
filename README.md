@@ -11,6 +11,10 @@ solution directly from the device.
   (decoded parameters, drag model, twist, record checksum), the environment
   record, the live solution for the gun selected on the device, and the Target
   Card of the sector selected on the device (10 targets).
+- Device mode (the Kestrel as central to a LiNK rangefinder) is documented in
+  `docs/ICD.md` §13, including an implementer's guide (§13.5) for building a
+  device that sends range, direction of fire and inclination and receives the
+  Kestrel's solution.
 - Not available over BLE as far as known: selecting a Target Card sector or
   reading sector names. Open items are listed in `docs/ICD.md` §11.
 

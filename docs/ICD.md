@@ -516,6 +516,7 @@ Wind values were set on the device but not carried here, so the unset fields are
 | 1.11 | 2026-11-01 | Added §7.11 `0x0089` SetFullInputs (range, Ideg, DoF), observed from the vendor app; `0x008a` is also pushed after it. The vendor app's live screen polls `0x00a0` and does not use `0x0092`. |
 | 1.12 | 2026-11-01 | Added §13 Device mode: the Kestrel as central to a LiNK rangefinder; peer advertisement and GATT; cleartext HDLC with ASCII `0x005e` sentences (ST, AI, A+, A3, AB). |
 | 1.13 | 2026-11-01 | §13.5: acting as the rangefinder verified (range, bearing and inclination drive the Kestrel's solution; no ACKs needed from the device). |
+| 1.14 | 2026-11-01 | §13: name not used for discovery (USER); added §13.5 implementer's guide with test vectors; dropout handling. |
 
 
 ## 13. Device mode: LiNK rangefinder link
@@ -527,7 +528,7 @@ With **Bluetooth › Conct = Device**, the Kestrel is the BLE **central** and co
 |---|---|---|
 | Kestrel advertising in Device mode | none: the Kestrel stops advertising, so PC/mobile connections (§1–§12) are unavailable until Conct is changed back | VERIFIED |
 | Peer advertisement | flags `05`; manufacturer data company `0x049b` = `0200ffffffff`; complete name `<MODEL>-<SERIAL>`; scan response: 128-bit service `49535343-fe7d-4ae5-8fa9-9fafd205e455` and the manufacturer data again | VERIFIED (one peer) |
-| Which of these the Kestrel filters on | — | UNKNOWN |
+| Which of these the Kestrel filters on | not the name: a device advertising an unrelated name is listed under Name › New and accepted. Service UUID vs manufacturer data: UNKNOWN, so advertise both | name VERIFIED (USER); rest UNKNOWN |
 | Peer GATT | service `49535343-fe7d-4ae5-8fa9-9fafd205e455`: char `0000fff1-…` write / write-without-response (Kestrel → peer); char `0000fff2-…` notify (peer → Kestrel), CCCD enabled by the Kestrel with `0100` | VERIFIED |
 | MTU | 23 | VERIFIED |
 | BLE pairing / bonding | none observed | VERIFIED |
@@ -548,12 +549,58 @@ With **Bluetooth › Conct = Device**, the Kestrel is the BLE **central** and co
 
 The Kestrel resends `A3` every few seconds and `AB` several times a second. The Kestrel's minimum range is 25 yd ("Unusable target data received" below it, per the peer's manual); 25 yd ranges were accepted.
 
-### 13.5 Acting as the rangefinder
+### 13.4 Acting as the rangefinder
 A device that advertises as in §13.1 and serves `fff1`/`fff2` is accepted by the Kestrel as a rangefinder (VERIFIED with an independent implementation):
 - After the Kestrel enables `fff2` notifications, the device sends `:A+`; the Kestrel then streams `A3` and `AB`. Sending `:AI` every 2 s is enough, and the device need not ACK the Kestrel's sentences (VERIFIED).
 - Each `:ST` (range 109–1094 yd; bearing `+000.0`…`+270.0`, zero-padded to three integer digits) together with the current `:AI` produced an `AB` echoing the new range within about 1 s, and every change of range, bearing or inclination changed the solution (VERIFIED, 14 combinations). The range from `ST` becomes the Kestrel's target range (USER).
-- A different advertised name was accepted when the Kestrel reconnected to a device address it already knew (VERIFIED); whether Name › New lists a device by service/manufacturer data alone is UNTESTED.
-- Links dropped with supervision timeouts (`0x08`) after 2–70 s at the bench and the Kestrel reconnected within about 1.5 s; the same happened with the reference peer. Cause UNKNOWN.
+- A different advertised name is listed under Name › New and accepted (VERIFIED, USER).
+- Links dropped with supervision timeouts (`0x08`) after 2–70 s at the bench and the Kestrel reconnected within about 1.5 s; the same happened with the reference peer. Cause UNKNOWN. Dropouts between Kestrels and rangefinders are a widely reported field problem, so treat them as normal (§13.5 step 6).
 
-### 13.4 Open
-- `AB` solution fields; which advertisement field the Kestrel filters on; whether the Kestrel's sentences change when the peer's "Kestrel Solution in FURY" setting is off.
+### 13.5 Implementer's guide: building a rangefinder for Device mode
+
+Everything a device needs to send range, direction of fire and inclination to a Kestrel and receive the solution. All of it is cleartext; no keys, PIN or bonding are involved.
+
+**1. Advertise** (connectable, legacy advertising, public address). Advertising data:
+
+```
+02 01 05                                  flags
+09 ff 9b 04 02 00 ff ff ff ff             manufacturer data, company 0x049b
+NN 09 <name>                              complete local name (any name)
+```
+Scan response:
+```
+11 07 55 e4 05 d2 af 9f a9 8f e5 4a 7d fe 43 53 53 49     128-bit service 49535343-fe7d-4ae5-8fa9-9fafd205e455
+09 ff 9b 04 02 00 ff ff ff ff                             manufacturer data again
+```
+
+**2. Serve one GATT service** `49535343-fe7d-4ae5-8fa9-9fafd205e455`:
+
+| Characteristic | Properties | Use |
+|---|---|---|
+| `0000fff1-0000-1000-8000-00805f9b34fb` | write, write without response | Kestrel → device bytes |
+| `0000fff2-0000-1000-8000-00805f9b34fb` | notify, with a CCCD | device → Kestrel bytes |
+
+Keep the ATT MTU at 23: send at most 20 bytes per notification and split longer frames across notifications. Accept frames that span several writes on `fff1`.
+
+**3. Pair on the Kestrel** (user action): Bluetooth › Conct = Device › Name › New, pick the device. The Kestrel connects, enables `fff2` notifications (CCCD `0100`), and from then on reconnects to that device's address by itself.
+
+**4. Frame everything** as §3/§4 LiNK frames, without encryption: `7e` + escaped(`[u16 type][u16 len][payload]` + CRC-16/X.25 little-endian) + `7e`, where `7e`/`7d` inside a frame become `7d 5e`/`7d 5d`. Each sentence is a COMMAND (type 0) whose payload is `5e 00` followed by the ASCII sentence and `\r`. Test vectors:
+
+| Content | Frame bytes |
+|---|---|
+| `:A+\r` | `7e 00 00 06 00 5e 00 3a 41 2b 0d 82 d7 7e` |
+| `:ST,0035,+044.0\r` | `7e 00 00 12 00 5e 00 3a 53 54 2c 30 30 33 35 2c 2b 30 34 34 2e 30 0d f7 ac 7e` |
+| `:AI,+01.0\r` | `7e 00 00 0c 00 5e 00 3a 41 49 2c 2b 30 31 2e 30 0d a5 51 7e` |
+| ACK from the Kestrel (type 4, op `0x005e`) | `7e 04 00 02 00 5e 00 b2 97 7e` |
+
+**5. Talk.**
+1. When notifications are enabled, send `:A+`.
+2. Send `:AI,±II.I` (inclination in degrees, two integer digits) every 1–2 s.
+3. On each measurement, send `:ST,RRRR,±BBB.B`: range in whole **yards** (4 digits; convert metres with ÷ 0.9144 and round), bearing in degrees with three integer digits (`+044.0`). Below 25 yd the Kestrel rejects the range.
+4. Read the Kestrel's sentences from `fff1`: `A3` every few seconds, `AB` about once a second (§13.3). The solution for your range is the first `AB` whose field 5 equals the yards you sent and that arrives after the send; allow about 2.5 s for direction and inclination changes to be applied.
+5. Do not ACK the Kestrel's sentences; it ACKs yours. `0x000b` carries the name the user gave your device on the Kestrel.
+
+**6. Be robust.** The link can drop at any time (`0x08`, see §13.4); keep advertising after a disconnect and the Kestrel reconnects within seconds. A measurement sent just before a drop is lost: if no `AB` echoes your range within about 3 s, send `:ST` again.
+
+### 13.6 Open
+- `AB` solution fields; whether the Kestrel filters on the service UUID or the manufacturer data; whether the Kestrel's sentences change when the peer's "Kestrel Solution in FURY" setting is off.
