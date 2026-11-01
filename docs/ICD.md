@@ -425,7 +425,7 @@ The Target Card is stored **on the device** (Elite only). It holds 10 targets (d
 
 The targets are further grouped into named **sectors**, each holding 10 targets. The sector name is shown on the device's Target Card sub-menu (`Sctr…`), and the vendor app can "Pull Targets from Kestrel" (USER, vendor documentation). So sectors and their targets are readable over BLE. TgtInfo (§7.4 kind 2) follows the current sector's designator but carries no sector number or name (VERIFIED, three sectors). No known command addresses sectors or sector names.
 
-**Reading the Target Card.** The vendor app's "Pull Targets from Kestrel" is `0x0084` kind 2, then 10 × `0x0093 [t][t][ff][00]` for t = 0…9 (target t, solutionId t, doExtraCalcs `0xff`, not set active), each answered by one `0x008a` (§7.9) (VERIFIED, observed). So target numbers 0–9 index the 10 targets the device currently holds; that these are the current sector's targets is INFERRED. No sector name crossed the link during the pull.
+**Reading the Target Card.** The vendor app's "Pull Targets from Kestrel" is `0x0084` kind 2, then 10 × `0x0093 [t][t][ff][00]` for t = 0…9 (target t, solutionId t, doExtraCalcs `0xff`, not set active), each answered by one `0x008a` (§7.9) (VERIFIED, observed). Target numbers 0–9 index the 10 targets of the **current sector**: pulls in two sectors returned entirely different target ranges, matching each sector (VERIFIED). The pull changed neither the selected gun nor the live solution (VERIFIED, 3 pulls). To read every sector, switch the sector on the device and pull again; label the targets with the designator from §7.4 kind 2 `+6`. No sector name crossed the link during the pull.
 
 ---
 
@@ -470,7 +470,7 @@ The targets are further grouped into named **sectors**, each holding 10 targets.
 3. §7.6: meaning of the u16 values between fields, the `01 01 01` flags and the last two bytes.
 4. Establish `0x0092` arg semantics before any further sends (§6.5).
 5. Meaning of `8592ffff` and the §7.4 settings fields.
-6. Sectors (§7.10): how a sector is selected and whether its name is readable over BLE.
+6. Sectors (§7.10): no known command selects a sector or reads its name.
 
 ## 12. Revision history
 
@@ -484,3 +484,4 @@ The targets are further grouped into named **sectors**, each holding 10 targets.
 | 1.5 | 2026-11-01 | §7.9 `0x008a` full-solution record mapped from a second CalcFullSolution capture (doExtraCalcs = 0): front half (range, DoF, holds, winds) cross-checked against the §7.8 record from the same transaction; RemV/RemE/ToF identified and internally confirmed (RemE = ½·BW·RemV²). `2³²` back-half slots read as "not computed" sentinels. §11-1 revised. |
 | 1.6 | 2026-11-01 | Target Card read path observed from the vendor app: `0x0084` kind 2, then 10 × `0x0093 [t][t][ff][00]` → `0x008a` (§6.4, §7.10). §7.9 +32: literal value replaced by its encoding (privacy). |
 | 1.7 | 2026-11-01 | §7.4 kind 2 `+6` = target designator (0 = ABC, 1 = 123), VERIFIED by switching sectors; TgtInfo carries no sector number or name (§7.10). |
+| 1.8 | 2026-11-01 | §7.10: a Target Card pull returns the current sector's 10 targets (VERIFIED in two sectors); pulls leave the device state unchanged. |
