@@ -398,16 +398,16 @@ The record carries the holds and most solver inputs. Target speed is not in it: 
 | Offset | Size | Type | Field | Status |
 |---|---|---|---|---|
 | 0 | 2 | — | `0000` | UNKNOWN |
-| 2 | 2 | u16 | **range**, cm (= §7.8 TR × 100) | INFERRED (= §7.8 value, one capture) |
+| 2 | 2 | u16 | **range**, cm (= §7.8 TR × 100) | INFERRED (= §7.8 value, one record) |
 | 4 | 4 | — | `00000000` | UNKNOWN |
-| 8 | 3 | i24 | **DoF, direction of fire**, × 0.001° (= §7.8 DoF) | INFERRED (= §7.8 value, one capture) |
+| 8 | 3 | i24 | **DoF, direction of fire**, × 0.001° (= §7.8 DoF) | INFERRED (= §7.8 value, one record) |
 | 11 | 4 | f32 | **Elv, elevation hold**, mil; negative = Up | VERIFIED copy (byte-identical to §7.8 +31) |
 | 15 | 4 | f32 | **Wnd1, windage hold at WS1**, mil; negative = Right | VERIFIED copy (= §7.8 +35) |
 | 19 | 4 | f32 | **Wnd2, windage hold at WS2**, mil; negative = Right | VERIFIED copy (= §7.8 +39) |
 | 23 | 2 | — | `0000` | UNKNOWN |
-| 25 | 2 | u16 | **WS1, wind speed 1 (average)**, mm/s (= §7.8 WS1 × 1000) | INFERRED (= §7.8 value, one capture) |
-| 27 | 2 | u16 | **WS2, wind speed 2 (maximum)**, mm/s | INFERRED (= §7.8 value, one capture) |
-| 29 | 2 | u16 | **WD, wind direction**, × 0.001° | INFERRED (= §7.8 value, one capture) |
+| 25 | 2 | u16 | **WS1, wind speed 1 (average)**, mm/s (= §7.8 WS1 × 1000) | INFERRED (= §7.8 value, one record) |
+| 27 | 2 | u16 | **WS2, wind speed 2 (maximum)**, mm/s | INFERRED (= §7.8 value, one record) |
+| 29 | 2 | u16 | **WD, wind direction**, × 0.001° | INFERRED (= §7.8 value, one record) |
 | 31 | 1 | — | `00` | UNKNOWN |
 | 32 | 3 | bytes | same 3-byte encoding as the §7.6 latitude field (i24 × 0.001°) | INFERRED |
 | 35 | 4 | — | `00000000` | UNKNOWN |
@@ -424,7 +424,7 @@ The record carries the holds and most solver inputs. Target speed is not in it: 
 
 Pushed after the host's `0x0093` is ACKed; ACK it with its own opcode, like the other Kestrel COMMANDs (§4.1).
 
-Mapped from one capture (`0x0093` args `ff 00 00 00`, i.e. doExtraCalcs = 0). The front half (range through WD) was cross-checked field for field against the §7.8 `0x00a1` record from the *same* transaction; the three holds are a byte-identical copy of it. **RemV/RemE/ToF are self-consistent:** RemE computed as ½·BW·RemV² (BW from §7.5 +16) matches the stored RemE to 0.04 %, confirming both together, and ToF fits the mean velocity over the range. This record is therefore the carrier for the remaining-velocity/energy/ToF outputs §7.8 lacks.
+Mapped from one record (`0x0093` args `ff 00 00 00`, i.e. doExtraCalcs = 0). The front half (range through WD) was cross-checked field for field against the §7.8 `0x00a1` record from the *same* transaction; the three holds are a byte-identical copy of it. **RemV/RemE/ToF are self-consistent:** RemE computed as ½·BW·RemV² (BW from §7.5 +16) matches the stored RemE to 0.04 %, confirming both together, and ToF fits the mean velocity over the range. This record is therefore the carrier for the remaining-velocity/energy/ToF outputs §7.8 lacks.
 
 Two back-half f32 slots hold `0x4f800000` (exactly 2³²), read as a "not computed" sentinel — consistent with doExtraCalcs = 0 having been requested. Still open: the unidentified back-half f32 (the derived outputs §7.8 lists — spin drift, aero jump, coriolis, drop — are candidates), the 3 bytes at +32 bytes at +32, and whether doExtraCalcs = 1/2 fills the sentinel slots.
 
@@ -491,7 +491,7 @@ Wind values were set on the device but not carried here, so the unset fields are
 
 ## 11. Open items (in priority order)
 
-1. §7.9 partly mapped: range, DoF, the three holds and the three wind values (front half, cross-checked against §7.8), plus RemV/RemE/ToF. Still open — the unidentified back-half f32 (spin drift / coriolis / aero jump / drop and the other §7.8-absent outputs are candidates) and the 3 bytes at +32; capture `0x0093` with doExtraCalcs = 1/2 to fill and label the `2³²` sentinel slots. Test target numbers 0–9 against the Target Card (§7.10). Confirm §7.8 +103 as Ideg. Check hold and range units under other unit settings.
+1. §7.9 partly mapped: range, DoF, the three holds and the three wind values (front half, cross-checked against §7.8), plus RemV/RemE/ToF. Still open — the unidentified back-half f32 (spin drift / coriolis / aero jump / drop and the other §7.8-absent outputs are candidates) and the 3 bytes at +32; read `0x0093` with doExtraCalcs = 1/2 (RESTRICTED) to fill and label the `2³²` sentinel slots. Test target numbers 0–9 against the Target Card (§7.10). Confirm §7.8 +103 as Ideg. Check hold and range units under other unit settings.
 2. §7.5: decode the AB drag-curve table (pairing/format of the values); the rest of part 1.
 3. §7.6: meaning of the u16 values between fields, the `01 01 01` flags and the last two bytes.
 4. `0x0092` arg semantics (§6.5). Low priority: the vendor app's live solution screen does not use it; it polls `0x00a0` about once a second (VERIFIED, 70 polls in one session).
@@ -507,10 +507,45 @@ Wind values were set on the device but not carried here, so the unset fields are
 | 1.2 | 2026-11-01 | B-1, B-2 and B-5 rewritten: GetGun selects the gun on the device, `0x0094` is the selected slot, and NACK `0x0c` means no solution (selected gun disabled). These supersede the 1.0 "last-read slot" interpretation. |
 | 1.3 | 2026-11-01 | §7.5: DM byte (part 1 +185), twist direction (sign of RT) and the record checksum (CRC-16/MCRF4XX) VERIFIED by on-device toggles. §7.4: settings shown static. Gun On/Off state shown absent from the gun record. DM `0x0a` = AB custom drag model; BC field semantics under AB corrected. |
 | 1.4 | 2026-11-01 | `0x0093` CalcFullSolution exercised once (owner-approved): reply `0x008a` SetFullSoln, 90 B, no state change (§6.4, §6.3, §7.9). Added §7.10 Target Card (sectors). New SetBalInput row. BC not editable under AB (USER). |
-| 1.5 | 2026-11-01 | §7.9 `0x008a` full-solution record mapped from a second CalcFullSolution capture (doExtraCalcs = 0): front half (range, DoF, holds, winds) cross-checked against the §7.8 record from the same transaction; RemV/RemE/ToF identified and internally confirmed (RemE = ½·BW·RemV²). `2³²` back-half slots read as "not computed" sentinels. §11-1 revised. |
+| 1.5 | 2026-11-01 | §7.9 `0x008a` full-solution record mapped from a second CalcFullSolution record (doExtraCalcs = 0): front half (range, DoF, holds, winds) cross-checked against the §7.8 record from the same transaction; RemV/RemE/ToF identified and internally confirmed (RemE = ½·BW·RemV²). `2³²` back-half slots read as "not computed" sentinels. §11-1 revised. |
 | 1.6 | 2026-11-01 | Target Card read path observed from the vendor app: `0x0084` kind 2, then 10 × `0x0093 [t][t][ff][00]` → `0x008a` (§6.4, §7.10). §7.9 +32: literal value replaced by its encoding (privacy). |
 | 1.7 | 2026-11-01 | §7.4 kind 2 `+6` = target designator (0 = ABC, 1 = 123), VERIFIED by switching sectors; TgtInfo carries no sector number or name (§7.10). |
 | 1.8 | 2026-11-01 | §7.10: a Target Card pull returns the current sector's 10 targets (VERIFIED in two sectors); pulls leave the device state unchanged. |
 | 1.9 | 2026-11-01 | §6.1: `0x0093` with exactly the Target Card arguments `[t][t][ff][00]` moved to SAFE; other arguments stay RESTRICTED. |
 | 1.10 | 2026-11-01 | Units: holds always mil and range always metres regardless of display (VERIFIED); Eunit/Wunit located (§7.5 part 1 +181/+182, copied to §7.8 +15/+17); §7.8 +103 = Ideg (VERIFIED). Added B-7 (editing a gun moves it to slot 0). |
 | 1.11 | 2026-11-01 | Added §7.11 `0x0089` SetFullInputs (range, Ideg, DoF), observed from the vendor app; `0x008a` is also pushed after it. The vendor app's live screen polls `0x00a0` and does not use `0x0092`. |
+| 1.12 | 2026-11-01 | Added §13 Device mode: the Kestrel as central to a LiNK rangefinder; peer advertisement and GATT; cleartext HDLC with ASCII `0x005e` sentences (ST, AI, A+, A3, AB). |
+
+
+## 13. Device mode: LiNK rangefinder link
+
+With **Bluetooth › Conct = Device**, the Kestrel is the BLE **central** and connects to a LiNK rangefinder (the **peripheral**). Reference peer: Vortex Fury HD 5000 AB in BAL mode.
+
+### 13.1 Link layer
+| Item | Value | Status |
+|---|---|---|
+| Kestrel advertising in Device mode | none: the Kestrel stops advertising, so PC/mobile connections (§1–§12) are unavailable until Conct is changed back | VERIFIED |
+| Peer advertisement | flags `05`; manufacturer data company `0x049b` = `0200ffffffff`; complete name `<MODEL>-<SERIAL>`; scan response: 128-bit service `49535343-fe7d-4ae5-8fa9-9fafd205e455` and the manufacturer data again | VERIFIED (one peer) |
+| Which of these the Kestrel filters on | — | UNKNOWN |
+| Peer GATT | service `49535343-fe7d-4ae5-8fa9-9fafd205e455`: char `0000fff1-…` write / write-without-response (Kestrel → peer); char `0000fff2-…` notify (peer → Kestrel), CCCD enabled by the Kestrel with `0100` | VERIFIED |
+| MTU | 23 | VERIFIED |
+| BLE pairing / bonding | none observed | VERIFIED |
+| Pairing on the Kestrel | Name › New lists the peer; the Kestrel then reconnects to that peer's address automatically | VERIFIED |
+
+### 13.2 Framing
+§3 HDLC and §4 packets, **in cleartext**: no §5 authentication and no encryption on this link (VERIFIED). Every sentence is a COMMAND with opcode `0x005e` whose argument bytes are ASCII: `:` + a two-letter ID + comma-separated fields + `\r` (`\r\n` seen on A3). The Kestrel ACKs each peer COMMAND (type 4, op `0x005e`); the peer does not ACK the Kestrel's (VERIFIED, ~100 frames).
+
+### 13.3 Sentences
+| ID | Direction | Format | Fields | Status |
+|---|---|---|---|---|
+| `A+` | peer → Kestrel | `:A+` | none; sent at session start and occasionally | VERIFIED presence; meaning (hello / keep-alive) INFERRED |
+| `ST` | peer → Kestrel | `:ST,RRRR,±BBB.B` | **range** in whole **yards**, 4 digits; **bearing** (direction of fire), degrees | range VERIFIED (≈32 m → `0034`/`0035`, ≈23 m → `0025`); bearing INFERRED |
+| `AI` | peer → Kestrel | `:AI,±II.I` | **inclination**, degrees; sent continuously | VERIFIED (+4° and −3° targets) |
+| `A3` | Kestrel → peer | `:A3,TT.TT,PP.PP,HH.HH,±LL.LL,<name>` | **temperature °F**, **station pressure inHg**, **RH %**, **latitude °**, **selected gun's profile name** | VERIFIED (same values as §7.6 in °F/inHg); units fixed regardless of display INFERRED |
+| `AB` | Kestrel → peer | `:AB,1,f2,…,f13` (13 fields) | f1 `1`; f5 **range, yards** (echo of the last `ST`); f6 **WS1 mph**; f7 **WS2 mph**; f8 **WD °**; f13 **MV ft/s** of the selected gun; f2–f4 and f9–f12 are solution outputs (not mapped) | f5 VERIFIED (echoed 31/34/36); f6–f8 VERIFIED (= §7.8 WS1/WS2/WD); f13 VERIFIED; others UNKNOWN |
+| — | Kestrel → peer | COMMAND `0x000b` SetExtDevName, ASCII name | the name the user gave this device in the Kestrel's device list, sent once per session | VERIFIED (USER) |
+
+The Kestrel resends `A3` every few seconds and `AB` several times a second. The Kestrel's minimum range is 25 yd ("Unusable target data received" below it, per the peer's manual); 25 yd ranges were accepted.
+
+### 13.4 Open
+- `AB` solution fields; which advertisement field the Kestrel filters on; whether the Kestrel's sentences change when the peer's "Kestrel Solution in FURY" setting is off.
