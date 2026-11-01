@@ -515,6 +515,7 @@ Wind values were set on the device but not carried here, so the unset fields are
 | 1.10 | 2026-11-01 | Units: holds always mil and range always metres regardless of display (VERIFIED); Eunit/Wunit located (§7.5 part 1 +181/+182, copied to §7.8 +15/+17); §7.8 +103 = Ideg (VERIFIED). Added B-7 (editing a gun moves it to slot 0). |
 | 1.11 | 2026-11-01 | Added §7.11 `0x0089` SetFullInputs (range, Ideg, DoF), observed from the vendor app; `0x008a` is also pushed after it. The vendor app's live screen polls `0x00a0` and does not use `0x0092`. |
 | 1.12 | 2026-11-01 | Added §13 Device mode: the Kestrel as central to a LiNK rangefinder; peer advertisement and GATT; cleartext HDLC with ASCII `0x005e` sentences (ST, AI, A+, A3, AB). |
+| 1.13 | 2026-11-01 | §13.5: acting as the rangefinder verified (range, bearing and inclination drive the Kestrel's solution; no ACKs needed from the device). |
 
 
 ## 13. Device mode: LiNK rangefinder link
@@ -546,6 +547,13 @@ With **Bluetooth › Conct = Device**, the Kestrel is the BLE **central** and co
 | — | Kestrel → peer | COMMAND `0x000b` SetExtDevName, ASCII name | the name the user gave this device in the Kestrel's device list, sent once per session | VERIFIED (USER) |
 
 The Kestrel resends `A3` every few seconds and `AB` several times a second. The Kestrel's minimum range is 25 yd ("Unusable target data received" below it, per the peer's manual); 25 yd ranges were accepted.
+
+### 13.5 Acting as the rangefinder
+A device that advertises as in §13.1 and serves `fff1`/`fff2` is accepted by the Kestrel as a rangefinder (VERIFIED with an independent implementation):
+- After the Kestrel enables `fff2` notifications, the device sends `:A+`; the Kestrel then streams `A3` and `AB`. Sending `:AI` every 2 s is enough, and the device need not ACK the Kestrel's sentences (VERIFIED).
+- Each `:ST` (range 109–1094 yd; bearing `+000.0`…`+270.0`, zero-padded to three integer digits) together with the current `:AI` produced an `AB` echoing the new range within about 1 s, and every change of range, bearing or inclination changed the solution (VERIFIED, 14 combinations). The range from `ST` becomes the Kestrel's target range (USER).
+- A different advertised name was accepted when the Kestrel reconnected to a device address it already knew (VERIFIED); whether Name › New lists a device by service/manufacturer data alone is UNTESTED.
+- Links dropped with supervision timeouts (`0x08`) after 2–70 s at the bench and the Kestrel reconnected within about 1.5 s; the same happened with the reference peer. Cause UNKNOWN.
 
 ### 13.4 Open
 - `AB` solution fields; which advertisement field the Kestrel filters on; whether the Kestrel's sentences change when the peer's "Kestrel Solution in FURY" setting is off.
