@@ -300,7 +300,9 @@ class Kestrel:
         [t][t][ff][00] for t = 0..9, each answered by one 0x8a record (ICD §7.10).
         These exact args leave the device state unchanged. Sectors cannot be selected
         or named over BLE; switch the sector on the device and call this again.
-        Each target carries its range and the raw 0x8a record (layout: ICD §7.9)."""
+        The 0x8a record already carries the computed solution, so each target
+        reports its range, the elevation/windage holds and remaining
+        velocity/energy/time of flight (ICD §7.9) alongside the raw record."""
         info = await self.get_settings(SETTINGS_TGT_INFO)
         numeric = len(info) > 6 and info[6] == 1  # designator: 0 = ABC, 1 = 123
         targets = []
@@ -308,8 +310,12 @@ class Kestrel:
             msgs = await self.request(OP_CALC_FULL_SOLN, bytes([t, t, 0xFF, 0x00]), timeout=10.0,
                                       done=lambda ty, p: ty == kp.T_COMMAND and _op(p) == OP_SET_FULL_SOLN)
             rec = msgs[-1][1][2:]
-            targets.append({"index": t, "label": str(t + 1) if numeric else chr(ord("A") + t),
-                            "range_m": struct.unpack_from("<H", rec, 2)[0] / 100, "raw": rec})
+            f = lambda o: struct.unpack_from("<f", rec, o)[0]
+            targets.append({
+                "index": t, "label": str(t + 1) if numeric else chr(ord("A") + t),
+                "range_m": struct.unpack_from("<H", rec, 2)[0] / 100,
+                "elev_mil": f(11), "wnd1_mil": f(15), "wnd2_mil": f(19),
+                "remv_ms": f(39), "reme_j": f(43), "tof_s": f(47), "raw": rec})
         return {"designator": "123" if numeric else "ABC", "targets": targets}
 
 
@@ -363,8 +369,12 @@ async def main():
         print(f"solution     {soln['gun_name']!r}: range {soln['range_m']:.0f} m  "
               f"elev {soln['elev_mil']:+.2f} mil (neg = up)  wnd1 {soln['wnd1_mil']:+.2f}  "
               f"wnd2 {soln['wnd2_mil']:+.2f} mil (neg = right)")
-    print(f"target card  current sector, designator {card['designator']}: "
-          + "  ".join(f"{t['label']} {t['range_m']:.1f} m" for t in card["targets"]))
+    print(f"target card  current sector, designator {card['designator']}  "
+          f"(elev/wnd: neg = up/right, mil):")
+    for t in card["targets"]:
+        print(f"  {t['label']:<2} {t['range_m']:7.1f} m  elev {t['elev_mil']:+6.2f}  "
+              f"wnd {t['wnd1_mil']:+5.2f}/{t['wnd2_mil']:+5.2f}  "
+              f"RemV {t['remv_ms']:4.0f} m/s  RemE {t['reme_j']:5.0f} J  ToF {t['tof_s']:.3f} s")
     print(f"log          {os.path.normpath(log_path)}")
 
 

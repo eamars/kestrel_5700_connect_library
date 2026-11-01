@@ -21,6 +21,8 @@ solution directly from the device.
 - `AGENTS.md` — rules for AI agents working in this repo.
 - `tools/kestrel_proto.py` — framing, CRC, packets, AES-128 crypto.
 - `tools/kestrel_client.py` — BLE client: connect → auth → verified reads.
+- `tools/decode_full_solution.py` — offline decoder for `0x008a` full-solution
+  records (ICD §7.9), e.g. from a Target Card read.
 
 ## Setup
 `python -m venv venv` then `venv/Scripts/python -m pip install -r requirements.txt`
